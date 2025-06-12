@@ -4,6 +4,7 @@
 import streamlit as st
 import sqlite3
 from datetime import datetime
+import urllib.parse
 
 # Conexão com o banco de dados
 conn = sqlite3.connect("oficina.db", check_same_thread=False)
@@ -49,13 +50,13 @@ conn.commit()
 # --- Interface Streamlit ---
 st.title("🔧 Sistema da Oficina de Lataria e Pintura")
 
-menu = st.sidebar.selectbox("Menu", ["Clientes", "Ordem de Serviço", "Materiais", "Financeiro", "Dashboard"])
+menu = st.sidebar.selectbox("Menu", ["Clientes", "Ordem de Serviço", "Todas as Ordens", "Materiais", "Financeiro", "Dashboard"])
 
 if menu == "Clientes":
     st.header("Cadastro de Clientes")
     with st.form("form_cliente"):
         nome = st.text_input("Nome")
-        telefone = st.text_input("Telefone")
+        telefone = st.text_input("Telefone (com DDD, só números)")
         email = st.text_input("E-mail")
         veiculo = st.text_input("Veículo")
         placa = st.text_input("Placa")
@@ -67,8 +68,8 @@ if menu == "Clientes":
 
 elif menu == "Ordem de Serviço":
     st.header("Ordem de Serviço")
-    clientes = c.execute("SELECT id, nome FROM clientes").fetchall()
-    cliente_dict = {f"{nome} (ID {id})": id for id, nome in clientes}
+    clientes = c.execute("SELECT id, nome, telefone, veiculo, placa FROM clientes").fetchall()
+    cliente_dict = {f"{nome} ({placa})": (id, telefone, nome, veiculo, placa) for id, nome, telefone, veiculo, placa in clientes}
 
     with st.form("form_os"):
         cliente_selecionado = st.selectbox("Cliente", list(cliente_dict.keys()))
@@ -77,10 +78,31 @@ elif menu == "Ordem de Serviço":
         status = st.selectbox("Status", ["Aguardando", "Em andamento", "Finalizada"])
         if st.form_submit_button("Salvar Ordem"):
             data = datetime.now().strftime("%Y-%m-%d")
+            cliente_id, telefone, nome, veiculo, placa = cliente_dict[cliente_selecionado]
             c.execute("INSERT INTO ordens_servico (cliente_id, servico, valor, status, data) VALUES (?, ?, ?, ?, ?)",
-                      (cliente_dict[cliente_selecionado], servico, valor, status, data))
+                      (cliente_id, servico, valor, status, data))
             conn.commit()
             st.success("Ordem de serviço cadastrada!")
+
+elif menu == "Todas as Ordens":
+    st.header("📋 Todas as Ordens de Serviço")
+    ordens = c.execute("""
+        SELECT o.id, c.nome, c.telefone, c.veiculo, c.placa, o.servico, o.valor, o.status, o.data
+        FROM ordens_servico o
+        JOIN clientes c ON o.cliente_id = c.id
+        ORDER BY o.id DESC
+    """).fetchall()
+
+    for ordem in ordens:
+        id, nome, telefone, veiculo, placa, servico, valor, status, data = ordem
+        with st.expander(f"{nome} ({placa}) - {status} - R$ {valor:.2f}"):
+            st.markdown(f"**Data:** {data}")
+            st.markdown(f"**Serviço:** {servico}")
+            st.markdown(f"**Veículo:** {veiculo} ({placa})")
+            mensagem = f"Olá {nome}, aqui está o resumo da sua Ordem de Serviço:\n\nVeículo: {veiculo} (Placa {placa})\nServiço: {servico}\nValor: R$ {valor:.2f}\nStatus: {status}\nData: {data}"
+            msg_encoded = urllib.parse.quote(mensagem)
+            link_whatsapp = f"https://wa.me/55{telefone}?text={msg_encoded}"
+            st.markdown(f"[📲 Enviar via WhatsApp]({link_whatsapp})", unsafe_allow_html=True)
 
 elif menu == "Materiais":
     st.header("Controle de Materiais")
@@ -124,3 +146,4 @@ elif menu == "Dashboard":
     st.metric("Total de Receitas", f"R$ {total_receitas:.2f}")
     st.metric("Total de Despesas", f"R$ {total_despesas:.2f}")
     st.metric("Lucro", f"R$ {lucro:.2f}")
+
